@@ -1,150 +1,150 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code and other AI assistants working in this repository.
+이 파일은 이 저장소에서 작업하는 Claude Code 및 기타 AI 어시스턴트를 위한 안내 문서입니다.
 
 ---
 
-## Project Overview
+## 프로젝트 개요
 
-> **Note:** This repository is currently empty and awaiting initial project setup. Update this section once a language, framework, and purpose have been established.
+> **참고:** 이 저장소는 현재 비어 있으며 초기 프로젝트 설정을 기다리고 있습니다. 언어, 프레임워크, 목적이 결정되면 이 섹션을 업데이트하세요.
 
-- **Repository:** `Herewego-1/mygit`
-- **Remote origin:** `http://local_proxy@127.0.0.1:54894/git/Herewego-1/mygit`
-- **Status:** New — no source code committed yet
+- **저장소:** `Herewego-1/mygit`
+- **원격 저장소(origin):** `http://local_proxy@127.0.0.1:54894/git/Herewego-1/mygit`
+- **상태:** 신규 — 아직 커밋된 소스 코드 없음
 
-When the project is initialized, document here:
-- What the project does
-- The primary language and framework
-- Any relevant architectural decisions
+프로젝트가 초기화되면 다음 내용을 여기에 문서화하세요:
+- 프로젝트가 하는 일
+- 주요 언어 및 프레임워크
+- 관련 아키텍처 결정 사항
 
 ---
 
-## Repository Structure
+## 저장소 구조
 
-> Update this section as files and directories are added.
+> 파일과 디렉토리가 추가되면 이 섹션을 업데이트하세요.
 
 ```
 mygit/
-├── CLAUDE.md          # This file
-└── (source files TBD)
+├── CLAUDE.md          # 이 파일
+└── (소스 파일 추후 추가 예정)
 ```
 
 ---
 
-## Git Workflow
+## Git 워크플로우
 
-### Branch Naming
+### 브랜치 명명 규칙
 
-- **AI-driven branches:** `claude/<purpose>-<session-id>`
-  - Example: `claude/claude-md-mm7gqt5uq1a8jbrh-Mvzkk`
-- **Feature branches:** `feature/<short-description>`
-- **Bug fix branches:** `fix/<short-description>`
+- **AI 작업 브랜치:** `claude/<목적>-<세션-id>`
+  - 예시: `claude/claude-md-mm7gqt5uq1a8jbrh-Mvzkk`
+- **기능 브랜치:** `feature/<간단한-설명>`
+- **버그 수정 브랜치:** `fix/<간단한-설명>`
 
-### Pushing Changes
+### 변경 사항 푸시
 
-Always use the `-u` flag to set the upstream:
+업스트림을 설정하기 위해 항상 `-u` 플래그를 사용하세요:
 
 ```bash
-git push -u origin <branch-name>
+git push -u origin <브랜치-이름>
 ```
 
-On network failure, retry up to **4 times** with exponential backoff:
+네트워크 오류 발생 시 지수 백오프 방식으로 최대 **4회** 재시도하세요:
 
-| Attempt | Wait before retry |
-|---------|-------------------|
-| 1       | 2 seconds         |
-| 2       | 4 seconds         |
-| 3       | 8 seconds         |
-| 4       | 16 seconds        |
+| 시도 횟수 | 재시도 전 대기 시간 |
+|-----------|---------------------|
+| 1         | 2초                 |
+| 2         | 4초                 |
+| 3         | 8초                 |
+| 4         | 16초                |
 
-### Commit Messages
+### 커밋 메시지
 
-- Use the imperative mood: `Add`, `Fix`, `Update`, `Remove`
-- Keep the subject line under 72 characters
-- Provide context in the body when the change is non-trivial
+- 명령형 어조 사용: `Add`, `Fix`, `Update`, `Remove`
+- 제목은 72자 이내로 작성
+- 변경이 복잡한 경우 본문에 맥락을 추가
 
-### Protected Branches
+### 보호된 브랜치
 
-- **Never force-push** to `main` or `master`
-- **Never push** to a branch other than the designated feature branch without explicit user permission
-- Resolve merge conflicts rather than discarding changes
+- `main` 또는 `master`에 **절대 강제 푸시(force-push) 금지**
+- 사용자의 명시적 허가 없이 지정된 기능 브랜치 외 다른 브랜치에 **푸시 금지**
+- 변경 사항을 버리지 말고 머지 충돌을 해결할 것
 
-### Fetching / Pulling
+### Fetch / Pull
 
-Prefer fetching a specific branch over a broad fetch:
+광범위한 fetch 대신 특정 브랜치를 명시해서 가져오세요:
 
 ```bash
-git fetch origin <branch-name>
-git pull origin <branch-name>
+git fetch origin <브랜치-이름>
+git pull origin <브랜치-이름>
 ```
 
 ---
 
-## Development Commands
+## 개발 명령어
 
-> Populate this section once the project is initialized with a build system.
+> 빌드 시스템으로 프로젝트가 초기화되면 이 섹션을 채워주세요.
 
-| Task       | Command        |
-|------------|----------------|
-| Build      | *(TBD)*        |
-| Test       | *(TBD)*        |
-| Lint       | *(TBD)*        |
-| Format     | *(TBD)*        |
+| 작업   | 명령어       |
+|--------|--------------|
+| 빌드   | *(추후 결정)* |
+| 테스트 | *(추후 결정)* |
+| 린트   | *(추후 결정)* |
+| 포맷   | *(추후 결정)* |
 
-Run tests and lint before every commit. Never skip pre-commit hooks (`--no-verify`) unless explicitly instructed.
-
----
-
-## Code Conventions
-
-> Update this section when a language and framework are chosen.
-
-- Follow the style guide appropriate for the chosen language
-- Prefer editing existing files over creating new ones
-- Do not add dead code, unused imports, or commented-out blocks
-- Keep functions small and focused; extract helpers only when reused in 3+ places
+모든 커밋 전에 테스트와 린트를 실행하세요. 명시적으로 지시받지 않는 한 pre-commit 훅(`--no-verify`)을 건너뛰지 마세요.
 
 ---
 
-## AI Assistant Guidelines
+## 코드 컨벤션
 
-These rules apply to all AI assistants (Claude Code and others) working in this repo.
+> 언어와 프레임워크가 결정되면 이 섹션을 업데이트하세요.
 
-### Before Making Changes
-
-1. **Read the file first** — always use the Read tool before editing any file
-2. **Understand the context** — review surrounding code and related files
-3. **Check the branch** — confirm you are on the designated feature branch
-
-### Making Changes
-
-- Keep changes **minimal and focused** on the task at hand
-- Do not refactor, add comments, or clean up surrounding code unless explicitly asked
-- Do not add error handling, fallbacks, or validation beyond what the task requires
-- Do not introduce new dependencies without user approval
-- Avoid security vulnerabilities (injection, XSS, insecure defaults)
-
-### Committing
-
-- Stage specific files by name, not `git add -A` or `git add .`
-- Write a descriptive commit message explaining *why*, not just *what*
-- Mark tasks complete immediately after finishing, not in batch
-
-### Pushing
-
-- Always develop on and push to the designated branch for the session
-- The branch must follow the `claude/...` naming convention and match the session ID
-- Confirm with the user before any push to a shared or protected branch
-
-### Scope Discipline
-
-- Do not implement features that were not requested
-- Do not design for hypothetical future requirements
-- Three similar lines of code is better than a premature abstraction
-- If blocked, diagnose the root cause — do not brute-force or retry the same failing action
+- 선택한 언어에 맞는 스타일 가이드를 따를 것
+- 새 파일을 만들기보다 기존 파일을 수정하는 것을 우선으로 할 것
+- 죽은 코드(dead code), 미사용 임포트, 주석 처리된 블록을 추가하지 말 것
+- 함수는 작고 명확하게 유지하고, 3곳 이상 재사용될 때만 헬퍼로 추출할 것
 
 ---
 
-## Updating This File
+## AI 어시스턴트 가이드라인
 
-When the project gains source code, CI/CD, or new tooling, update the relevant sections above. Keep this file accurate and concise — it is the primary reference for every AI session in this repository.
+이 규칙은 이 저장소에서 작업하는 모든 AI 어시스턴트(Claude Code 포함)에 적용됩니다.
+
+### 변경 전
+
+1. **파일을 먼저 읽을 것** — 파일을 편집하기 전에 항상 Read 도구를 사용
+2. **맥락을 파악할 것** — 주변 코드와 관련 파일을 검토
+3. **브랜치를 확인할 것** — 지정된 기능 브랜치에 있는지 확인
+
+### 변경 시
+
+- 변경은 현재 작업에 **최소한이고 집중적으로** 유지할 것
+- 명시적으로 요청받지 않는 한 리팩토링, 주석 추가, 주변 코드 정리를 하지 말 것
+- 작업이 요구하는 범위를 넘어서는 에러 처리, 폴백, 유효성 검사를 추가하지 말 것
+- 사용자 승인 없이 새로운 의존성을 도입하지 말 것
+- 보안 취약점(인젝션, XSS, 안전하지 않은 기본값 등)을 피할 것
+
+### 커밋 시
+
+- `git add -A` 또는 `git add .` 대신 파일명을 명시해서 스테이징할 것
+- *무엇*을 했는지가 아닌 *왜* 했는지를 설명하는 커밋 메시지를 작성할 것
+- 작업 완료 즉시 완료 표시를 할 것 (일괄 처리 금지)
+
+### 푸시 시
+
+- 항상 해당 세션의 지정된 브랜치에서 개발하고 푸시할 것
+- 브랜치는 `claude/...` 명명 규칙을 따르고 세션 ID와 일치해야 함
+- 공유 또는 보호된 브랜치에 푸시하기 전에 사용자에게 확인할 것
+
+### 범위 규율
+
+- 요청받지 않은 기능을 구현하지 말 것
+- 가상의 미래 요구사항을 위해 설계하지 말 것
+- 유사한 코드 세 줄이 섣부른 추상화보다 낫다
+- 막혔을 때는 근본 원인을 파악할 것 — 같은 실패한 작업을 무작정 반복하지 말 것
+
+---
+
+## 이 파일 업데이트
+
+프로젝트에 소스 코드, CI/CD, 또는 새로운 도구가 추가되면 위의 관련 섹션을 업데이트하세요. 이 파일을 정확하고 간결하게 유지하세요 — 이 저장소의 모든 AI 세션을 위한 기본 참조 문서입니다.
