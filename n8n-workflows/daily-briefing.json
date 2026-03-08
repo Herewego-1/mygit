@@ -362,6 +362,52 @@
         },
         "options": {}
       }
+    },
+    {
+      "id": "node-07b-grok",
+      "name": "S07b-Grok",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1940,
+        720
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// S07b-Grok: Gemini 실패 시 폴백 — Grok 3\nconst prev = $input.first().json;\nconst { rawContent, gptContent, today, obsidianFilePath, backupFilePath,\n        startTime, usdKrw, btcUsd, newsSource } = prev;\nconst KEY = $env.GROK_API_KEY;\n\nif (!KEY || KEY.includes('여기에')) {\n  return [{ json: { ...prev, success: false, source: 'grok',\n    error: 'GROK_API_KEY 미설정', rewrittenContent: null } }];\n}\n\nconst systemPrompt = '당신은 한국 증권사 리서치센터 수석 애널리스트입니다. '\n  + 'Perplexity(팩트·출처)와 GPT(인과관계·해석)의 리서치를 통합 데일리 리포트로 작성하세요.\\n\\n'\n  + '[리포트 구조] 1.전일 미 증시 요약(표) 2.핵심 변화요인 3.섹터·테마별 동향 '\n  + '4.한국 증시 시사점 5.FICC 요약 6.리스크·기회 체크포인트 3가지\\n'\n  + '[형식] 한국어, 증권사 문체, Markdown, 최소 3500자';\n\nconst parts = [];\nif (rawContent) parts.push('## Perplexity 리서치\\n' + rawContent);\nif (gptContent) parts.push('## GPT 분석\\n' + gptContent);\nif (!parts.length) {\n  return [{ json: { ...prev, success: false, source: 'grok',\n    error: '리서치 데이터 없음', rewrittenContent: null } }];\n}\nconst userPrompt = '날짜: ' + today + ' | USD/KRW: ' + usdKrw + ' | BTC: ' + btcUsd\n  + '\\n\\n' + parts.join('\\n\\n') + '\\n\\n통합 데일리 리포트를 작성하세요.';\n\ntry {\n  const response = await this.helpers.httpRequest({\n    method: 'POST',\n    url: 'https://api.x.ai/v1/chat/completions',\n    headers: {\n      'Content-Type': 'application/json',\n      'Authorization': 'Bearer ' + KEY\n    },\n    body: JSON.stringify({\n      model: 'grok-3',\n      messages: [\n        { role: 'system', content: systemPrompt },\n        { role: 'user', content: userPrompt }\n      ],\n      temperature: 0.3,\n      max_tokens: 8192\n    }),\n    timeout: 90000\n  });\n  const r = typeof response === 'string' ? JSON.parse(response) : response;\n  const report = r?.choices?.[0]?.message?.content;\n  if (!report) throw new Error('Grok 응답 비어있음');\n  return [{ json: {\n    ...prev, success: true, source: 'grok', rewrittenContent: report,\n    llmModel: 'grok-3', newsSource: newsSource || 'perplexity'\n  } }];\n} catch(e) {\n  return [{ json: { ...prev, success: false, source: 'grok',\n    error: e.message, rewrittenContent: null } }];\n}\n"
+      }
+    },
+    {
+      "id": "node-08b-if-grok",
+      "name": "S08b-IfGrok",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2180,
+        720
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cg2",
+              "leftValue": "={{ $json.success }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
     }
   ],
   "connections": {
@@ -563,6 +609,35 @@
       ]
     },
     "S06b-IfGemini": {
+      "main": [
+        [
+          {
+            "node": "S10-Markdown",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "S07b-Grok",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "S07b-Grok": {
+      "main": [
+        [
+          {
+            "node": "S08b-IfGrok",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "S08b-IfGrok": {
       "main": [
         [
           {
