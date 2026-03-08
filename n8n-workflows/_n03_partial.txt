@@ -1,0 +1,9 @@
+// NODE-03: Perplexity Sonar Pro (STEP 1-A)
+var d = .first().json;
+var today = d.today;
+var obsidianFilePath = d.obsidianFilePath;
+var backupFilePath = d.backupFilePath;
+var startTime = d.startTime;
+var usdKrw = d.usdKrw || 0;
+var btcUsd = d.btcUsd || 0;
+var KEY = .PERPLEXITY_API_KEY;

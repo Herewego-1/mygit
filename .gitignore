@@ -1,0 +1,21 @@
+# 환경변수 (절대 커밋 금지)
+.env
+*.env.*
+!.env.example
+
+# 임시 진단 스크립트
+check_*.py
+check_*.ps1
+fetch_*.py
+fetch_*.ps1
+find_repos.ps1
+list_repos.ps1
+test_*.py
+test_*.ps1
+get_claudemd.py
+github_notes/
+
+# 시스템
+__pycache__/
+*.pyc
+${OBSIDIAN_VAULT_PATH}/
