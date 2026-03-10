@@ -1,0 +1,719 @@
+{
+  "name": "WEGO 일간 경제브리핑 v3 (Perplexity+GPT+Claude)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 7 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "node-01-schedule",
+      "name": "S01-Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        0,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "v1",
+              "name": "today",
+              "type": "string",
+              "value": "={{ $now.setZone('Asia/Seoul').toFormat('yyyy-MM-dd') }}"
+            },
+            {
+              "id": "v2",
+              "name": "year",
+              "type": "string",
+              "value": "={{ $now.setZone('Asia/Seoul').year.toString() }}"
+            },
+            {
+              "id": "v3",
+              "name": "weekNum",
+              "type": "string",
+              "value": "={{ $now.setZone('Asia/Seoul').weekNumber.toString() }}"
+            },
+            {
+              "id": "v4",
+              "name": "obsidianFilePath",
+              "type": "string",
+              "value": "={{ 'D:\\\\Obsidian\\\\경제브리핑\\\\' + $now.setZone('Asia/Seoul').toFormat('yyyy-MM-dd') + '.md' }}"
+            },
+            {
+              "id": "v5",
+              "name": "backupFilePath",
+              "type": "string",
+              "value": "={{ 'C:\\\\temp\\\\wego-backup-' + $now.setZone('Asia/Seoul').toFormat('yyyy-MM-dd') + '.md' }}"
+            },
+            {
+              "id": "v6",
+              "name": "startTime",
+              "type": "string",
+              "value": "={{ $now.toISO() }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "node-02-setdate",
+      "name": "S02-SetDate",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        220,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// 노드 2b: 실시간 환율·코인 가격 수집 (무료 API, 키 불필요)\n// - 환율: Frankfurter API (ECB 기준, 무료)\n// - 비트코인: CoinGecko API (무료)\n// 실패 시 0 반환, 워크플로 중단 안 함\n// ============================================================\nconst prev = $input.first().json;\nlet usdKrw = 0, btcUsd = 0, btcKrw = 0;\n\n// 1) USD/KRW 환율 (Frankfurter — ECB 기준, 무료)\ntry {\n  const fx = await this.helpers.httpRequest({\n    method: 'GET',\n    url: 'https://api.frankfurter.app/latest?from=USD&to=KRW',\n    timeout: 8000\n  });\n  usdKrw = fx?.rates?.KRW ? Math.round(fx.rates.KRW) : 0;\n} catch(e) {}\n\n// 2) 비트코인 USD·KRW (CoinGecko 무료)\ntry {\n  const btc = await this.helpers.httpRequest({\n    method: 'GET',\n    url: 'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd,krw',\n    timeout: 8000\n  });\n  btcUsd = btc?.bitcoin?.usd ? Math.round(btc.bitcoin.usd) : 0;\n  btcKrw = btc?.bitcoin?.krw ? Math.round(btc.bitcoin.krw / 10000) * 10000 : 0;\n} catch(e) {}\n\nreturn [{ json: {\n  ...prev,\n  usdKrw, btcUsd, btcKrw,\n  realtimeFetched: (usdKrw > 0 || btcUsd > 0)\n}}];"
+      },
+      "id": "node-02b-realtime",
+      "name": "S02b-Realtime",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// S03-Perplexity: sonar — 종합 글로벌 금융 브리핑\nconst inp = $input.first().json;\nconst { today, obsidianFilePath, backupFilePath, startTime } = inp;\nconst usdKrw = inp.usdKrw || 0;\nconst btcUsd  = inp.btcUsd  || 0;\nconst KEY = $env.PERPLEXITY_API_KEY;\n\nif (!KEY || typeof KEY !== 'string' || KEY.length < 10) {\n  return [{ json: {\n    ...inp,\n    success: false, source: 'perplexity',\n    error: 'PERPLEXITY_API_KEY 미설정',\n    rawContent: null\n  }}];\n}\n\nconst systemPrompt = 'You are a senior Wall Street veteran analyst with 30+ years at Goldman Sachs, '\n  + 'Bridgewater Associates, and JPMorgan. Expert in global macro, institutional research synthesis, '\n  + 'and Korean market impacts.\\n\\nABSOLUTE RULES:\\n'\n  + '1. Every number MUST have source citation (URL or [Publication Name, Date])\\n'\n  + '2. If data unverifiable for today, write [미확인] — NEVER fabricate\\n'\n  + '3. Cover ALL 6 sections completely\\n'\n  + '4. Include legendary investor views (Buffett, Dalio, Burry)\\n'\n  + '5. Minimum 5 verified data points per section\\n'\n  + '6. Aim for 4000+ words total';\n\nconst userPrompt = '날짜: ' + today + ' | USD/KRW: ' + usdKrw + ' | BTC/USD: ' + btcUsd + '\\n\\n'\n  + '다음 6개 섹션으로 구성된 한국어 증권사 데일리 리포트를 작성하세요:\\n\\n'\n  + '1. 전일 미 증시 요약 (주요지수·대표종목 전일비 표 형식)\\n'\n  + '2. 핵심 변화요인 심층 분석 (인과관계, 섹터 영향)\\n'\n  + '3. 섹터·테마별 동향 (반도체/소프트웨어/자동차/소비재/에너지)\\n'\n  + '4. 한국 증시 시사점 (환율·외국인·수출주·AI 수혜)\\n'\n  + '5. FICC 요약 (채권·원자재·달러·암호화폐)\\n'\n  + '6. 리스크·기회 체크포인트 3가지\\n\\n'\n  + '형식: 한국어, 증권사 문체, Markdown, 최소 3500자\\n\\n'\n  + '7. 전일 발표 주요 경제지표 분석 (예상치 대비 실제치, 시장 영향)\\n'\n  + '8. 주요 기업 실적 발표 분석 (어닝 서프라이즈/쇼크 내용)\\n'\n  + '9. 이번 주 주요 일정 (날짜·지표명·예상치)\\n'\n  + '⚠️ 주의: 주가 수치는 작성하지 마세요. 뉴스와 분석에 집중하세요. 주가 관련 수치는 [주가데이터 별도 수집]으로 표기';\n\nlet rawContent = null;\nlet success = false;\nlet errorMsg = null;\n\ntry {\n  const response = await this.helpers.httpRequest({\n    method: 'POST',\n    url: 'https://api.perplexity.ai/chat/completions',\n    headers: {\n      'Content-Type': 'application/json',\n      'Authorization': 'Bearer ' + KEY\n    },\n    body: JSON.stringify({\n      model: 'sonar',\n      messages: [\n        { role: 'system', content: systemPrompt },\n        { role: 'user',   content: userPrompt }\n      ],\n      temperature: 0.1,\n      max_tokens: 8000,\n      return_citations: true,\n      search_recency_filter: 'day'\n    }),\n    timeout: 90000\n  });\n  const r = typeof response === 'string' ? JSON.parse(response) : response;\n  if (r?.choices?.[0]?.message?.content) {\n    rawContent = r.choices[0].message.content;\n    // Compliance Notice / 외부 면책문구 제거 후 증권사 표준 문구로 교체\n    rawContent = rawContent\n      .replace(/\\*?\\*?Compliance Notice\\*?\\*?[\\s\\S]*?(?=\\n#|\\n\\*\\*|$)/gi, '')\n      .replace(/\\*?\\*?Disclaimer\\*?\\*?[\\s\\S]*?(?=\\n#|\\n\\*\\*|$)/gi, '')\n      .replace(/\\*?\\*?면책\\s*고지\\*?\\*?[\\s\\S]*?(?=\\n#|\\n\\*\\*|$)/gi, '')\n      .replace(/\\*?\\*?투자\\s*유의\\s*사항\\*?\\*?[\\s\\S]*?(?=\\n#|\\n\\*\\*|$)/gi, '')\n      .replace(/This (information|report|content) is (for|provided for) (informational|educational)[\\s\\S]*?(?=\\n#|\\n\\*\\*|\\n\\n\\n|$)/gi, '')\n      .trim();\n    // 증권사 표준 면책문구 추가\n    rawContent += '\\n\\n---\\n'\n      + '> **[투자유의사항]** 본 자료는 투자자의 투자 판단을 돕기 위한 참고 자료이며, '\n      + '당사의 공식 의견이 아닙니다. 본 자료에 수록된 내용은 신뢰할 수 있는 출처로부터 '\n      + '작성되었으나 그 정확성·완전성을 보장하지 않습니다. '\n      + '**투자의 최종 판단 및 책임은 전적으로 투자자 본인에게 있으며**, '\n      + '본 자료는 어떠한 경우에도 투자 결과에 대한 법적 책임의 근거로 사용될 수 없습니다.';\n    success = true;\n  } else {\n    throw new Error('Perplexity 응답이 비어있음');\n  }\n} catch (e) {\n  errorMsg = e.message;\n}\n\nreturn [{ json: {\n  ...inp,\n  success, source: 'perplexity', error: errorMsg,\n  rawContent,\n  usdKrw, btcUsd, btcKrw: inp.btcKrw || 0\n} }];\n"
+      },
+      "id": "node-03-perplexity",
+      "name": "S03-Perplexity",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// S04-GPT-CrossVal: GPT-4o-mini 교차분석\nconst prev = $input.first().json;\nconst { rawContent, today, obsidianFilePath, backupFilePath, startTime } = prev;\nconst usdKrw = prev.usdKrw || 0;\nconst btcUsd  = prev.btcUsd  || 0;\nconst perpSuccess = prev.success !== false;\nconst KEY = $env.OPENAI_API_KEY;\n\nconst systemPrompt = '당신은 한국 증권사 리서치센터 수석 퀀트·거시경제 애널리스트입니다. '\n  + '주어진 날짜 기준 시장데이터를 분석하세요. 팩트와 정확도를 우선하고, '\n  + '매 이슈의 인과관계를 체계적으로 분석하되 증권사 문체로 반드시 작성한다.';\n\nconst userPrompt = '날짜: ' + today + ' | USD/KRW: ' + usdKrw + ' | BTC: ' + btcUsd + '\\n\\n'\n  + '1. 미 증시 요약 (주요지수·대표주 전일비 표 형태로 표시)\\n'\n  + '2. 핵심 변화요인 인과관계 분석 (증권사 문체)\\n'\n  + '3. 섹터·테마별 동향 (반도체/소프트웨어/자동차/소비재/에너지)\\n'\n  + '4. 한국 증시 시사점 (환율·반도체·AI수혜·외국인)\\n'\n  + '5. FICC 요약\\n'\n  + '6. 리스크·기회 체크리스트 3가지\\n\\n'\n  + '형식: 한국어, Markdown'\n  + (rawContent ? '\\n\\n## Perplexity 리서치\\n' + rawContent : '');\n\nlet gptContent = null;\nlet gptSuccess = false;\n\nif (KEY && !KEY.includes('여기에')) {\n  try {\n    const resp = await this.helpers.httpRequest({\n      method: 'POST',\n      url: 'https://api.openai.com/v1/chat/completions',\n      headers: {\n        'Content-Type': 'application/json',\n        'Authorization': 'Bearer ' + KEY\n      },\n      body: JSON.stringify({\n        model: 'gpt-4o-mini',\n        messages: [\n          { role: 'system', content: systemPrompt },\n          { role: 'user',   content: userPrompt }\n        ],\n        temperature: 0.3,\n        max_tokens: 3000\n      }),\n      timeout: 45000\n    });\n    const r = typeof resp === 'string' ? JSON.parse(resp) : resp;\n    if (r?.choices?.[0]?.message?.content) {\n      gptContent = r.choices[0].message.content;\n      gptSuccess = true;\n    }\n  } catch (e) {\n    // GPT 실패 시 gptContent null로 계속 진행\n  }\n}\n\nreturn [{ json: {\n  rawContent,\n  gptContent,\n  gptSuccess,\n  perpSuccess,\n  today, obsidianFilePath, backupFilePath, startTime, usdKrw, btcUsd,\n  source: prev.source || 'perplexity',\n  newsSource: gptSuccess ? 'perplexity+gpt' : (prev.source || 'perplexity')\n}}];\n"
+      },
+      "id": "node-04-gpt",
+      "name": "S04-GPT-CrossVal",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        920,
+        320
+      ],
+      "notes": "GPT-4o 독립 분석 + 교차검증\nOPENAI_API_KEY 없으면 Perplexity 단독"
+    },
+    {
+      "parameters": {
+        "jsCode": "// S05-Claude: 최종 데일리 리포트 생성 (claude-sonnet-4-6)\nconst d = $input.first().json;\nconst { rawContent, gptContent, gptSuccess, perpSuccess,\n        today, obsidianFilePath, backupFilePath, startTime, usdKrw, btcUsd } = d;\nconst KEY = $env.CLAUDE_API_KEY;\n\nif (!KEY || KEY.includes('여기에')) {\n  return [{ json: { ...d, success: false, source: 'claude', error: 'CLAUDE_API_KEY 미설정', rewrittenContent: null }}];\n}\n\nconst systemPrompt = `당신은 BlackRock Investment Institute(BII)와 Goldman Sachs Global Investment Research(GIR)에서 활동한 세계 최정상급 글로벌 매크로 전략가입니다.\nBridgewater Associates·JPMorgan Asset Management 자문 경력, CFA·PhD(경제학, Harvard) 보유.\nAUM 0조 이상을 운용하는 글로벌 연기금·국부펀드·헤지펀드 CIO를 위해 매일 아침 데일리 브리핑을 한국어로 작성합니다.\n\n[작성 원칙]\n- 3인칭·객관적 서술. \"~로 파악됐다\", \"~한 것으로 분석된다\", \"~로 판단된다\" 문체 유지\n- 수치는 반드시 명시. 애매한 표현(\"다소\", \"약간\") 대신 구체적 수치 사용\n- 인과관계 명확히 서술: A → B → C 흐름으로 연결\n- 글로벌 매크로 시각: 미국 정책·유럽 경기·중국 성장·신흥국 리스크·지정학적 긴장까지 통합 분석\n- BII 스타일 인사이트: Regime 변화·Risk-on/off 전환·자산배분 시사점 중심\n- 기관급 포지셔닝 관점: 단순 시황 아닌 실제 포트폴리오 액션까지 제시\n- 과장·단정 금지: \"~할 가능성\", \"~로 예상된다\" 표현 사용\n- AI·자동화 관련 언급 일절 금지\n\n[리포트 포맷 — 반드시 아래 구조 그대로 출력]\n\n## 📈 전일 미국 증시 요약\n\n[✅ 아래 실제 데이터를 그대로 사용하세요 — userContent의 marketTable 참조]\n지수·종목 수치는 절대 수정하지 말고 marketTable에서 가져온 값 그대로 사용\n\n---\n\n## 🔍 핵심 변화 요인\n\n### 1. [가장 중요한 이슈 제목]\n(3~4문장 인과관계 분석)\n\n### 2. [두 번째 이슈]\n(3~4문장)\n\n### 3. [세 번째 이슈]\n(3~4문장)\n\n---\n\n## 🏭 섹터·테마별 동향\n\n| 섹터 | 방향 | 핵심 내용 |\n|------|------|-----------|\n| 반도체 | ▲/▼/─ | |\n| AI·소프트웨어 | | |\n| 자동차·2차전지 | | |\n| 바이오·헬스케어 | | |\n| 에너지·원자재 | | |\n| 금융 | | |\n\n---\n\n## 🇰🇷 한국 증시 시사점\n\n> **핵심 메시지** (1~2문장 핵심 요약)\n\n- **환율**: USD/KRW 동향 및 영향\n- **외국인**: 수급 동향 및 방향성\n- **수출주**: 반도체·자동차·조선 등 영향\n- **테마주**: AI·2차전지·방산 등 당일 관심 테마\n\n---\n\n## 💹 FICC 요약\n\n**📌 채권 금리**\n| 자산 | 금리 | 전일대비 | 코멘트 |\n|------|------|---------|--------|\n| 미 국채 10Y | [marketTable 참조] | ▲/▼ | |\n| 미 국채 30Y | [marketTable 참조] | ▲/▼ | |\n\n**💵 환율**\n| 통화쌍 | 환율 | 전일대비 | 코멘트 |\n|--------|------|---------|--------|\n| USD/KRW | [marketTable 참조] | ▲/▼ | |\n| EUR/USD | [marketTable 참조] | ▲/▼ | |\n| USD/JPY | [marketTable 참조] | ▲/▼ | |\n\n**🛢️ 원자재**\n| 자산 | 가격 | 전일대비 | 코멘트 |\n|------|------|---------|--------|\n| WTI 원유 | [marketTable 참조] | ▲/▼ | |\n| Brent 원유 | [marketTable 참조] | ▲/▼ | |\n| 금 (Gold) | [marketTable 참조] | ▲/▼ | |\n| 은 (Silver) | [marketTable 참조] | ▲/▼ | |\n| 구리 (Copper) | [marketTable 참조] | ▲/▼ | |\n\n**🔐 암호화폐**\n| 자산 | 가격 | 전일대비 | 코멘트 |\n|------|------|---------|--------|\n| Bitcoin | [marketTable 참조] | ▲/▼ | |\n| Ethereum | [marketTable 참조] | ▲/▼ | |\n| Solana | [marketTable 참조] | ▲/▼ | |\n\n---\n\n## 📊 주요 경제지표 발표\n\n| 지표 | 기간 | 예상치 | 실제치 | 서프라이즈 |\n|------|------|--------|--------|-----------|\n| (예: CPI YoY) | | | | ▲상회/▼하회/─부합 |\n| (예: 실업률) | | | | |\n| (예: ISM 제조업) | | | | |\n\n> **시장 반응**: (지표 발표 후 시장 반응 1~2문장 서술)\n\n---\n\n## 📋 주요 기업 실적\n\n| 기업 | EPS 예상 | EPS 실제 | 매출 예상 | 매출 실제 | 가이던스 |\n|------|---------|---------|---------|---------|---------|\n| | | | | | ▲상향/▼하향/─유지 |\n\n> **실적 시즌 흐름**: (전반적인 실적 시즌 평가 1~2문장)\n\n---\n\n## ⚠️ 오늘의 체크포인트\n\n> 🔴 **리스크**: (주요 하방 리스크 1가지)\n\n> 🟡 **주목**: (오늘 주시해야 할 이벤트·지표)\n\n> 🟢 **기회**: (잠재적 상방 요인 1가지)\n\n---\n\n## 💡 핵심 요약 (오늘 꼭 알아야 할 것)\n\n> **한 줄 요약**: (오늘 시장 전체를 관통하는 핵심 메시지 1~2문장)\n\n**📌 오늘의 투자 포인트**\n| 구분 | 내용 |\n|------|------|\n| ✅ 긍정 | (상승 모멘텀·매수 관점) |\n| ⚠️ 경계 | (리스크·주의 구간) |\n| 👀 주목 | (오늘 확인해야 할 핵심 변수) |\n\n**📅 이번 주 주요 일정**\n- (날짜): (이벤트/지표 발표)\n- (날짜): (이벤트/지표 발표)\n- (날짜): (이벤트/지표 발표)\n\n**🎯 단기 시나리오**\n- **강세 시나리오**: (조건 + 예상 흐름)\n- **약세 시나리오**: (조건 + 예상 흐름)\n\n---`;\n\nconst parts = [];\nif (perpSuccess && rawContent) parts.push('=== 리서치 데이터 (팩트·출처) ===\\n' + rawContent);\nif (gptSuccess && gptContent) parts.push('=== 심층 분석 (인과관계·해석) ===\\n' + gptContent);\n\nif (parts.length === 0) {\n  return [{ json: { ...d, success: false, source: 'claude', error: '리서치 데이터 없음', rewrittenContent: null }}];\n}\n\nconst marketTable = d.marketTable || '';\nconst breakingNews = d.breakingNewsText || '';\nconst userContent = '날짜: ' + today + ' | USD/KRW: ' + usdKrw + ' | BTC/USD: ' + btcUsd\n  + '\\n\\n[✅ 검증된 실시간 주가 데이터 — 이 숫자를 그대로 사용, 절대 수정 금지]\\n'  + marketTable\n  + '\\n\\n[📰 글로벌 실시간 뉴스 — 새벽 이슈 포함, 핵심 변화요인 분석에 활용]\\n'  + breakingNews\n  + '\\n\\n' + parts.join('\\n\\n')\n  + '\\n\\n위 데이터를 바탕으로 지정된 포맷에 맞춰 데일리 리포트를 작성하세요.'\n  + ' 표의 수치는 리서치 데이터에서 정확히 가져오고, 없는 수치는 [확인중]으로 표기하세요.'\n  + ' 최소 3500자 이상 작성하세요.';\n\ntry {\n  const response = await this.helpers.httpRequest({\n    method: 'POST',\n    url: 'https://api.anthropic.com/v1/messages',\n    headers: {\n      'Content-Type': 'application/json',\n      'x-api-key': KEY,\n      'anthropic-version': '2023-06-01'\n    },\n    body: JSON.stringify({\n      model: 'claude-sonnet-4-6',\n      max_tokens: 8000,\n      system: systemPrompt,\n      messages: [{ role: 'user', content: userContent }]\n    }),\n    timeout: 90000\n  });\n\n  const r = typeof response === 'string' ? JSON.parse(response) : response;\n  const report = r?.content?.[0]?.text;\n  if (!report) throw new Error('Claude 응답 비어있음');\n\n  return [{ json: {\n    ...d, success: true, source: 'claude',\n    rewrittenContent: report,\n    model: r.model, llmModel: r.model,\n    newsSource: gptSuccess ? 'perplexity+gpt' : 'perplexity'\n  }}];\n} catch(e) {\n  return [{ json: { ...d, success: false, source: 'claude', error: e.message, rewrittenContent: null }}];\n}\n"
+      },
+      "id": "node-05-claude",
+      "name": "S05-Claude",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1160,
+        320
+      ],
+      "notes": "claude-sonnet-4-6 교차검증 최종 리포트\nCLAUDE_API_KEY 필요"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.success }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-06-if-claude",
+      "name": "S06-IfClaude",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1400,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// 노드 8: Qwen2.5:7B 한국어 리라이팅 (Ollama 로컬)\n// 8개 섹션 심층 분석 / 최소 3500자 / 월가+유명투자자 관점\n// ============================================================\nconst prev = $input.first().json;\nconst { rawContent, today, obsidianFilePath, backupFilePath, startTime } = prev;\nconst newsSource = prev.source || prev.newsSource;\nconst HOST  = 'http://127.0.0.1:11434';\nconst MODEL = 'qwen2.5:7b';\nconst pass = { today, obsidianFilePath, backupFilePath, startTime, newsSource };\n\nconst sys = `당신은 골드만삭스·브리지워터·JP모건 출신 30년 경력의 월가 베테랑 애널리스트입니다.\n한국 기관투자자와 개인투자자를 위한 최고 수준의 심층 경제 브리핑을 작성합니다.\n\n[절대 규칙]\n1. 한국어만 사용 (고유명사·수치·단위·기관명·ETF 티커 제외)\n2. 문체: ~다, ~음, ~임 (뉴스레터 스타일, 존댓말 절대 금지)\n3. 수치: $, %, bp, 원 단위 원문 그대로 유지\n4. 마크다운 엄수: ### #### - > ** 등\n5. 절대 금지: 중국어 혼용, 번역투, 내용 생략, 데이터 추가 생성\n6. 최소 3500자 이상 (각 섹션 충분히 상세하게)\n7. 원문에 없는 데이터 절대 추가 금지 (hallucination 방지)\n8. 유명 투자자 견해 반드시 포함 (버핏·달리오·버리 등)`;\n\nconst usr = `오늘은 ${today}입니다. 아래 영문 금융 데이터를 월가 베테랑 관점의 심층 한국어 브리핑으로 작성하세요. 반드시 3500자 이상. 원문에 있는 정보만 활용하세요.\n\n## 원문 데이터\n${rawContent}\n\n## 출력 형식 (8개 섹션 모두 필수)\n\n### 🌍 세계 시장 동향\n#### 미국 증시\n- **현황**: S&P500·나스닥·다우·러셀2000 수치와 변동폭\n- **섹터 흐름**: 11개 섹터 중 상승/하락 주도 섹터\n- **월가 시각**: 주요 기관 평가\n\n#### 유럽·아시아 시장\n- 유럽 주요 지수 (STOXX600·DAX·FTSE100·CAC40)\n- 아시아 주요 지수 (닛케이·항셍·CSI300·ASX200)\n- 글로벌 센티먼트 지표\n\n---\n\n### 🇺🇸 미국 시장 심층 분석\n#### 금리·채권\n- **국채 수익률 곡선**: 2년물/10년물/30년물 수준, 정상/역전 여부 해석\n- **연준(Fed)**: 현재 금리, 다음 FOMC 일정, 인하 확률 (CME FedWatch)\n\n#### 공포·탐욕 지표\n- **VIX**: 현재 수준과 의미 (15↓안정, 15-25보통, 25↑경계, 35↑공황)\n- **DXY**: 달러 인덱스 수준과 신흥국/원화 영향\n\n---\n\n### 🇰🇷 국내 시장 분석\n#### KOSPI·KOSDAQ\n- 지수 수준, 등락폭, 주요 섹터\n- 외국인·기관·개인 순매수/순매도\n\n#### 주요 종목\n- 삼성전자·SK하이닉스·NAVER 등 핵심 종목 동향\n\n#### 원/달러 환율\n- 현재 환율, 추세, 한국은행 기준금리 현황\n\n---\n\n### 📈 ETF·채권 동향\n#### 미국 ETF\n- SPY·QQQ·VTI·IWM — 등락폭과 거래량 특이사항\n- 섹터 ETF 중 주목할 움직임\n\n#### 채권 ETF\n- AGG·TLT — 등락폭, 10년물 국채 금리와의 관계\n\n---\n\n### 📊 버핏 지표 & 핵심 거시 지표\n#### 밸류에이션 지표\n- **버핏 지표** (시총/GDP): 현재 수준과 과열/저평가 해석\n- **쉴러 CAPE P/E**: 현재 수준 vs 역사적 평균(16.8), 향후 10년 수익률 시사점\n\n#### 경기 지표\n- **ISM PMI**: 제조업·서비스업 PMI (50 기준 확장/수축 판단)\n- **고용·물가**: 비농업 고용·초기실업수당·CPI·PCE 최신 수치\n- **신용 스프레드**: IG·HY 스프레드 — 리스크 온/오프 신호\n\n---\n\n### 🏆 유명 투자자 & 기관 리서치\n#### 워렌 버핏 / 버크셔 해서웨이\n- 최근 13F 포지션, 매수/매도 종목, 현금 보유액, 최근 발언\n\n#### 레이 달리오 / 브리지워터\n- 최신 매크로 견해, 올웨더 포트폴리오 스탠스, 발표 자료\n\n#### 마이클 버리 / Scion\n- 최근 13F 포지션, 현재 투자 테마\n\n#### 골드만삭스 / JP모건 / 모건스탠리\n- S&P500 연말 목표가, 섹터 추천, 핵심 매크로 전망\n- 주요 애널리스트 액션 (업그레이드/다운그레이드)\n\n---\n\n### 💡 오늘의 핵심 인사이트\n> 월가 베테랑 관점에서 오늘 가장 중요한 5가지 흐름\n\n1. **[첫째]**: [구체적 수치 포함한 핵심 포인트]\n2. **[둘째]**: [구체적 수치 포함]\n3. **[셋째]**: [구체적 수치 포함]\n4. **[넷째]**: [구체적 수치 포함]\n5. **[다섯째]**: [구체적 수치 포함]\n\n---\n\n### ⚠️ 리스크 & 기회 요인\n#### 단기 리스크\n- 주의해야 할 구체적 위험 요소 (지정학·금리·기업실적 등)\n- 한국 투자자에게 특히 중요한 리스크\n\n#### 기회 요인\n- 현재 시장에서 주목할 만한 섹터/자산/전략\n- 유명 투자자들이 보는 기회 포인트`;\n\ntry {\n  const r = await this.helpers.httpRequest({\n    method: 'POST',\n    url: `${HOST}/api/generate`,\n    headers: { 'Content-Type': 'application/json' },\n    body: JSON.stringify({\n      model: MODEL,\n      prompt: `<|im_start|>system\n${sys}<|im_end|>\n<|im_start|>user\n${usr}<|im_end|>\n<|im_start|>assistant\n`,\n      stream: false,\n      options: { temperature: 0.3, num_predict: 6000, top_k: 40, top_p: 0.9, repeat_penalty: 1.05 }\n    }),\n    timeout: 120000\n  });\n\n  const rewritten = r.response;\n  if (!rewritten || rewritten.trim().length < 1000)\n    throw new Error(`응답 부실 (${rewritten?.length || 0}자)`);\n\n  const zhChars = (rewritten.match(/[一-鿿]/g) || []).length;\n  if (zhChars > 15) throw new Error(`중국어 ${zhChars}자 감지 — Llama Fallback 필요`);\n\n  return [{ json: {\n    success: true, source: 'qwen', model: MODEL,\n    rewrittenContent: rewritten, rawContent, ...pass\n  }}];\n\n} catch(e) {\n  return [{ json: { success: false, source: 'qwen', error: e.message, rawContent, ...pass } }];\n}"
+      },
+      "id": "node-07-qwen",
+      "name": "S07-Qwen-Fallback",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1640,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.success }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-08-if-qwen",
+      "name": "S08-IfQwen",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1880,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// 노드 10: Llama3.1:8B Fallback — Qwen 실패 시 대체\n// 모두 실패 시: 원문(영문) 그대로 저장 (최후 수단)\n// ============================================================\nconst prev = $input.first().json;\nconst { rawContent, today, obsidianFilePath, backupFilePath, startTime, newsSource } = prev;\nconst HOST = 'http://127.0.0.1:11434';\nconst pass = { today, obsidianFilePath, backupFilePath, startTime, newsSource, rawContent };\n\ntry {\n  const r = await this.helpers.httpRequest({\n    method: 'POST',\n    url: `${HOST}/api/generate`,\n    headers: { 'Content-Type': 'application/json' },\n    body: JSON.stringify({\n      model: 'llama3.1:8b',\n      // Llama3용 special token 형식\n      prompt: `<|begin_of_text|><|start_header_id|>system<|end_header_id|>\\n당신은 금융 전문 한국어 번역가입니다. 비존댓말(~다)로 작성하세요.<|eot_id|>\\n<|start_header_id|>user<|end_header_id|>\\n오늘(${today}) 금융 뉴스 한국어 브리핑:\\n\\n${rawContent}\\n\\n형식:\\n### 🌐 글로벌 시장\\n### 🇰🇷 국내 시장\\n### 📈 ETF 동향\\n### 💡 핵심 포인트<|eot_id|>\\n<|start_header_id|>assistant<|end_header_id|>\\n`,\n      stream: false,\n      options: { temperature: 0.3, num_predict: 2500 }\n    }),\n    timeout: 150000\n  });\n\n  const rewritten = r.response;\n  if (!rewritten || rewritten.trim().length < 100) throw new Error('Llama 응답 없음');\n\n  return [{ json: { ...pass, success: true, source: 'llama', model: 'llama3.1:8b', rewrittenContent: rewritten } }];\n\n} catch(e) {\n  // 로컬 LLM 전부 실패 → 원문(영문) 그대로 저장\n  const fallback = `## 🚨 자동 번역 실패 — 원문 표시\\n\\n> Qwen·Llama 모두 실패. Ollama 상태 확인 후 수동 변환 필요.\\n\\n---\\n\\n${rawContent}`;\n  return [{ json: { ...pass, success: true, source: 'raw_fallback', model: 'none', rewrittenContent: fallback } }];\n}"
+      },
+      "id": "node-09-llama",
+      "name": "S09-Llama-Fallback",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2120,
+        680
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// S10-Markdown: 최종 마크다운 생성\nconst data = $input.first().json;\nconst { today, obsidianFilePath, backupFilePath, startTime } = data;\nconst rewrittenContent = data.rewrittenContent;\nconst newsSource = data.newsSource || data.source || 'unknown';\nconst llmModel   = data.model || data.llmModel || 'unknown';\n\nconst endTime = new Date();\nconst durationSec = startTime\n  ? Math.round((endTime - new Date(startTime)) / 1000)\n  : 0;\n\nconst [year, month] = today.split('-');\nconst monthMap = {\n  '01':'1월','02':'2월','03':'3월','04':'4월','05':'5월','06':'6월',\n  '07':'7월','08':'8월','09':'9월','10':'10월','11':'11월','12':'12월'\n};\n\n// YAML frontmatter (Obsidian 메타데이터 — 숨겨진 영역, 본문에 미표시)\nconst fm = [\n  '---',\n  `title: \"${today} 경제브리핑\"`,\n  `date: ${today}`,\n  'tags:',\n  '  - 경제브리핑',\n  `  - ${year}년`,\n  `  - ${monthMap[month] || month + '월'}`,\n  'category: 경제브리핑',\n  `source: ${newsSource}`,\n  `llm_model: ${llmModel}`,\n  `created: ${endTime.toISOString()}`,\n  `duration_sec: ${durationSec}`,\n  '---',\n  ''\n].join('\\n');\n\nconst header = [\n  `# 📊 ${today} 경제브리핑`,\n  '',\n  '---',\n  ''\n].join('\\n');\n\nconst finalMarkdown = fm + header + rewrittenContent;\n\nreturn [{ json: {\n  finalMarkdown, today, obsidianFilePath, backupFilePath,\n  wordCount: finalMarkdown.length, newsSource, llmModel, durationSec, startTime\n}}];\n"
+      },
+      "id": "node-10-markdown",
+      "name": "S10-Markdown",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2340,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// 노드 12: Obsidian Vault 파일 저장\n// 경로: OBSIDIAN_VAULT_PATH\\경제브리핑\\2026-03-04.md\n// 실패 시: C:\\temp\\wego-backup-날짜.md 자동 백업\n// ============================================================\nconst fs   = require('fs');\nconst path = require('path');\nconst data = $input.first().json;\nconst { finalMarkdown, obsidianFilePath, backupFilePath } = data;\n\nif (!obsidianFilePath) {\n  return [{ json: { ...data, saveSuccess: false,\n    saveError: 'obsidianFilePath 없음 — 날짜 변수 세팅 노드 확인' } }];\n}\n\ntry {\n  // 폴더 없으면 자동 생성\n  const dir = path.dirname(obsidianFilePath);\n  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });\n\n  // 파일 저장\n  fs.writeFileSync(obsidianFilePath, finalMarkdown, 'utf8');\n\n  // 저장 검증\n  const stats = fs.statSync(obsidianFilePath);\n  if (stats.size < 200) throw new Error(`파일 크기 이상: ${stats.size}bytes`);\n\n  return [{ json: {\n    ...data, saveSuccess: true, savedPath: obsidianFilePath,\n    fileSizeBytes: stats.size, saveTime: new Date().toISOString()\n  }}];\n\n} catch(mainErr) {\n  // 메인 저장 실패 → C:\\temp 백업\n  try {\n    const tempDir = path.dirname(backupFilePath);\n    if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });\n    fs.writeFileSync(backupFilePath, finalMarkdown, 'utf8');\n    return [{ json: {\n      ...data, saveSuccess: false, saveError: mainErr.message,\n      backupSaved: true, savedPath: backupFilePath\n    }}];\n  } catch(backupErr) {\n    return [{ json: {\n      ...data, saveSuccess: false, saveError: mainErr.message,\n      backupSaved: false, backupError: backupErr.message\n    }}];\n  }\n}"
+      },
+      "id": "node-11-save",
+      "name": "S11-Save",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2580,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.saveSuccess }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-12-if-save",
+      "name": "S12-IfSave",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2820,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// 노드 14: Telegram 전문 분할 전송\n// Telegram 4096자 제한 → 섹션별 분할 전송\n// 헤더 + 본문 여러 메시지로 순차 전송\n// ============================================================\nconst data  = $input.first().json;\nconst TOKEN = $env.TELEGRAM_BOT_TOKEN;\nconst CHAT  = $env.TELEGRAM_CHAT_ID;\n\nif (!TOKEN || TOKEN.includes('여기에')) {\n  return [{ json: { ...data, telegramSent: false, telegramNote: 'Telegram 봇 미설정 — 건너뜀' } }];\n}\n\nconst MAX = 3800; // Telegram 4096자 제한, 여유분 확보\nconst sizeKB = Math.round((data.fileSizeBytes || 0) / 1024 * 10) / 10;\n\n// 헤더 메시지 (요약)\nconst header =\n  `📊 *[WEGO] ${data.today} 경제브리핑*\\n` +\n  `${'━'.repeat(28)}\\n` +\n  `📰 수집: ${data.newsSource} | 🤖 번역: ${data.llmModel}\\n` +\n  `📁 ${sizeKB}KB | ⏱ ${data.durationSec}초\\n` +\n  `${'━'.repeat(28)}`;\n\n// 본문에서 YAML frontmatter 및 생성정보 제거 후 순수 내용만 추출\nconst raw = data.finalMarkdown || '';\nconst bodyStart = raw.indexOf('---\\n', 4); // 두 번째 --- 이후\nconst bodyEnd   = raw.indexOf('## 📝 생성 정보');\nlet body = bodyStart > 0\n  ? raw.slice(bodyStart + 4, bodyEnd > 0 ? bodyEnd : undefined).trim()\n  : raw.trim();\n\n// 섹션별 분할 (### 기준)\nconst sectionRegex = /(###[^\\n]*\\n)/g;\nconst parts = body.split(sectionRegex).filter(p => p.trim());\n\n// 청크 생성: MAX자 이하로 묶기\nconst chunks = [];\nlet cur = '';\nfor (const part of parts) {\n  if ((cur + part).length > MAX) {\n    if (cur.trim()) chunks.push(cur.trim());\n    cur = part;\n  } else {\n    cur += part;\n  }\n}\nif (cur.trim()) chunks.push(cur.trim());\n\n// 전체 메시지 배열 (헤더 + 청크들)\nconst messages = [header, ...chunks];\n\n// 순차 전송\nlet sent = 0, failed = 0;\nfor (let i = 0; i < messages.length; i++) {\n  try {\n    await this.helpers.httpRequest({\n      method: 'POST',\n      url: `https://api.telegram.org/bot${TOKEN}/sendMessage`,\n      headers: { 'Content-Type': 'application/json' },\n      body: JSON.stringify({\n        chat_id: CHAT,\n        text: messages[i],\n        parse_mode: 'Markdown',\n        disable_web_page_preview: true\n      }),\n      timeout: 8000\n    });\n    sent++;\n    // 메시지 간 500ms 딜레이 (Telegram rate limit 방지)\n    if (i < messages.length - 1) {\n      await new Promise(r => setTimeout(r, 500));\n    }\n  } catch(e) {\n    failed++;\n  }\n}\n\nreturn [{ json: {\n  ...data,\n  telegramSent: sent > 0,\n  telegramMessages: sent,\n  telegramFailed: failed\n}}];"
+      },
+      "id": "node-13-tg-ok",
+      "name": "S13-TgOK",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3060,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// 노드 15: Telegram 에러 알림\n// Obsidian 저장 실패 시 발송 (백업 파일 경로 포함)\n// ============================================================\nconst data  = $input.first().json;\nconst TOKEN = $env.TELEGRAM_BOT_TOKEN;\nconst CHAT  = $env.TELEGRAM_CHAT_ID;\n\nif (!TOKEN || TOKEN.includes('여기에')) {\n  return [{ json: { ...data, telegramSent: false, status: 'error_no_telegram' } }];\n}\n\nconst backupInfo = data.backupSaved\n  ? `\\n✅ 백업 저장: C:\\\\temp\\\\wego-backup-${data.today}.md`\n  : `\\n❌ 백업도 실패: ${data.backupError || '원인 미상'}`;\n\nconst msg =\n  `⚠️ *[WEGO 경고]* Obsidian 저장 실패\\n\\n` +\n  `📅 날짜: ${data.today}\\n` +\n  `❌ 오류: ${data.saveError || '알 수 없음'}` +\n  backupInfo +\n  `\\n\\n수동으로 확인해주세요!`;\n\ntry {\n  await this.helpers.httpRequest({\n    method: 'POST',\n    url: `https://api.telegram.org/bot${TOKEN}/sendMessage`,\n    headers: { 'Content-Type': 'application/json' },\n    body: JSON.stringify({ chat_id: CHAT, text: msg, parse_mode: 'Markdown' }),\n    timeout: 5000\n  });\n} catch(e) { /* Telegram 실패도 무시 */ }\n\nreturn [{ json: { ...data, telegramSent: true, status: 'error_save_failed' } }];"
+      },
+      "id": "node-14-tg-err",
+      "name": "S14-TgErr",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3060,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ============================================================\n// 노드 16: 실행 로그 기록\n// 저장: OBSIDIAN_VAULT_PATH\\wego-automation-logs.json\n// SQLite 대신 JSON 파일 사용 (추가 설치 불필요)\n// 최근 90일치 순환 보관\n// ============================================================\nconst fs   = require('fs');\nconst path = require('path');\nconst data = $input.first().json;\nconst vaultPath = $env.OBSIDIAN_VAULT_PATH || 'D:\\\\Obsidian';\nconst logFile   = path.join(vaultPath, 'wego-automation-logs.json');\n\nconst entry = {\n  timestamp:     new Date().toISOString(),\n  date:          data.today,\n  workflow:      'daily-economic-briefing',\n  status:        data.saveSuccess ? 'success' : 'partial_fail',\n  newsSource:    data.newsSource || 'unknown',\n  llmModel:      data.llmModel   || 'unknown',\n  saveSuccess:   !!data.saveSuccess,\n  backupSaved:   !!data.backupSaved,\n  telegramSent:  !!data.telegramSent,\n  durationSec:   data.durationSec   || 0,\n  fileSizeBytes: data.fileSizeBytes || 0,\n  errors: {\n    saveError:     data.saveError    || null,\n    telegramError: data.telegramError || null\n  }\n};\n\ntry {\n  let logs = [];\n  if (fs.existsSync(logFile)) {\n    try { logs = JSON.parse(fs.readFileSync(logFile, 'utf8')); } catch(e) {}\n    if (!Array.isArray(logs)) logs = [];\n  }\n\n  logs.push(entry);\n\n  // 최근 90개 유지 (90일치)\n  if (logs.length > 90) logs = logs.slice(logs.length - 90);\n\n  const dir = path.dirname(logFile);\n  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });\n  fs.writeFileSync(logFile, JSON.stringify(logs, null, 2), 'utf8');\n\n} catch(e) { /* 로그 실패는 무시 — 워크플로 중단 안 함 */ }\n\nreturn [{ json: { ...data, logEntry: entry, workflowComplete: true } }];"
+      },
+      "id": "node-15-log",
+      "name": "S15-Log",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3300,
+        320
+      ]
+    },
+    {
+      "id": "node-05b-gemini",
+      "name": "S05b-Gemini",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1460,
+        570
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// S05b-Gemini: Claude 실패 시 폴백 — Gemini 3.1 Pro\nconst prev = $input.first().json;\nconst { rawContent, gptContent, today, obsidianFilePath, backupFilePath,\n        startTime, usdKrw, btcUsd, newsSource } = prev;\nconst KEY = $env.GEMINI_API_KEY;\n\nif (!KEY || KEY.includes('여기에')) {\n  return [{ json: { ...prev, success: false, source: 'gemini',\n    error: 'GEMINI_API_KEY 미설정', rewrittenContent: null } }];\n}\n\nconst systemInstruction = '당신은 국내 대형 증권사 리서치센터 수석 매크로 애널리스트입니다. AI·자동화 관련 언급 없이, 3인칭 객관적 증권사 문체로 작성하세요. '\n  + 'Perplexity(팩트·출처)와 GPT(인과관계·해석)의 리서치를 통합 데일리 리포트로 작성하세요.\\n\\n'\n  + '[리포트 구조] 1.전일 미 증시 요약(표) 2.핵심 변화요인 3.섹터·테마별 동향 '\n  + '4.한국 증시 시사점 5.FICC 요약 6.리스크·기회 체크포인트 3가지\\n'\n  + '[형식] 한국어, 증권사 문체, Markdown, 최소 3500자';\n\nconst parts = [];\nif (rawContent) parts.push('## Perplexity 리서치\\n' + rawContent);\nif (gptContent) parts.push('## GPT 분석\\n' + gptContent);\nif (!parts.length) {\n  return [{ json: { ...prev, success: false, source: 'gemini',\n    error: '리서치 데이터 없음', rewrittenContent: null } }];\n}\nconst userPrompt = '날짜: ' + today + ' | USD/KRW: ' + usdKrw + ' | BTC: ' + btcUsd\n  + '\\n\\n' + parts.join('\\n\\n') + '\\n\\n통합 데일리 리포트를 작성하세요.';\n\ntry {\n  const response = await this.helpers.httpRequest({\n    method: 'POST',\n    url: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-pro-preview:generateContent?key=' + KEY,\n    headers: { 'Content-Type': 'application/json' },\n    body: JSON.stringify({\n      system_instruction: { parts: [{ text: systemInstruction }] },\n      contents: [{ role: 'user', parts: [{ text: userPrompt }] }],\n      generationConfig: { temperature: 0.3, maxOutputTokens: 8192 }\n    }),\n    timeout: 90000\n  });\n  const r = typeof response === 'string' ? JSON.parse(response) : response;\n  const report = r?.candidates?.[0]?.content?.parts?.[0]?.text;\n  if (!report) throw new Error('Gemini 응답 비어있음');\n  return [{ json: {\n    ...prev, success: true, source: 'gemini', rewrittenContent: report,\n    llmModel: 'gemini-3.1-pro-preview', newsSource: newsSource || 'perplexity'\n  } }];\n} catch(e) {\n  return [{ json: { ...prev, success: false, source: 'gemini',\n    error: e.message, rewrittenContent: null } }];\n}\n"
+      }
+    },
+    {
+      "id": "node-06b-if-gemini",
+      "name": "S06b-IfGemini",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1700,
+        570
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cg1",
+              "leftValue": "={{ $json.success }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "node-07b-grok",
+      "name": "S07b-Grok",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1940,
+        720
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// S07b-Grok: Gemini 실패 시 폴백 — Grok 3\nconst prev = $input.first().json;\nconst { rawContent, gptContent, today, obsidianFilePath, backupFilePath,\n        startTime, usdKrw, btcUsd, newsSource } = prev;\nconst KEY = $env.GROK_API_KEY;\n\nif (!KEY || KEY.includes('여기에')) {\n  return [{ json: { ...prev, success: false, source: 'grok',\n    error: 'GROK_API_KEY 미설정', rewrittenContent: null } }];\n}\n\nconst systemPrompt = '당신은 국내 대형 증권사 리서치센터 수석 매크로 애널리스트입니다. AI·자동화 관련 언급 없이, 3인칭 객관적 증권사 문체로 작성하세요. '\n  + 'Perplexity(팩트·출처)와 GPT(인과관계·해석)의 리서치를 통합 데일리 리포트로 작성하세요.\\n\\n'\n  + '[리포트 구조] 1.전일 미 증시 요약(표) 2.핵심 변화요인 3.섹터·테마별 동향 '\n  + '4.한국 증시 시사점 5.FICC 요약 6.리스크·기회 체크포인트 3가지\\n'\n  + '[형식] 한국어, 증권사 문체, Markdown, 최소 3500자';\n\nconst parts = [];\nif (rawContent) parts.push('## Perplexity 리서치\\n' + rawContent);\nif (gptContent) parts.push('## GPT 분석\\n' + gptContent);\nif (!parts.length) {\n  return [{ json: { ...prev, success: false, source: 'grok',\n    error: '리서치 데이터 없음', rewrittenContent: null } }];\n}\nconst userPrompt = '날짜: ' + today + ' | USD/KRW: ' + usdKrw + ' | BTC: ' + btcUsd\n  + '\\n\\n' + parts.join('\\n\\n') + '\\n\\n통합 데일리 리포트를 작성하세요.';\n\ntry {\n  const response = await this.helpers.httpRequest({\n    method: 'POST',\n    url: 'https://api.x.ai/v1/chat/completions',\n    headers: {\n      'Content-Type': 'application/json',\n      'Authorization': 'Bearer ' + KEY\n    },\n    body: JSON.stringify({\n      model: 'grok-3',\n      messages: [\n        { role: 'system', content: systemPrompt },\n        { role: 'user', content: userPrompt }\n      ],\n      temperature: 0.3,\n      max_tokens: 8192\n    }),\n    timeout: 90000\n  });\n  const r = typeof response === 'string' ? JSON.parse(response) : response;\n  const report = r?.choices?.[0]?.message?.content;\n  if (!report) throw new Error('Grok 응답 비어있음');\n  return [{ json: {\n    ...prev, success: true, source: 'grok', rewrittenContent: report,\n    llmModel: 'grok-3', newsSource: newsSource || 'perplexity'\n  } }];\n} catch(e) {\n  return [{ json: { ...prev, success: false, source: 'grok',\n    error: e.message, rewrittenContent: null } }];\n}\n"
+      }
+    },
+    {
+      "id": "node-08b-if-grok",
+      "name": "S08b-IfGrok",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2180,
+        720
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cg2",
+              "leftValue": "={{ $json.success }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "node-03b-realdata",
+      "name": "S03b-RealData",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        320
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// S03b-RealData: Yahoo Finance 전체 시장 데이터 (지수·종목·원자재·채권·환율·암호화폐)\nconst prev = $input.first().json;\n\nconst symbols = {\n  // 주요 지수 (실제 지수 티커)\n  '^GSPC': { name: 'S&P 500',          cat: 'index' },\n  '^NDX':  { name: 'NASDAQ-100',        cat: 'index' },\n  '^DJI':  { name: '다우존스',           cat: 'index' },\n  '^VIX':  { name: 'VIX (공포지수)',     cat: 'index' },\n  '^SOX':  { name: '필라델피아 반도체',   cat: 'index' },\n\n  // 주요 종목\n  'NVDA':  { name: 'NVIDIA',   cat: 'stock' },\n  'TSLA':  { name: 'Tesla',    cat: 'stock' },\n  'AAPL':  { name: 'Apple',    cat: 'stock' },\n  'MSFT':  { name: 'Microsoft', cat: 'stock' },\n  'AMZN':  { name: 'Amazon',   cat: 'stock' },\n  'META':  { name: 'Meta',     cat: 'stock' },\n  'GOOGL': { name: 'Google',   cat: 'stock' },\n\n  // 원자재\n  'GC=F':  { name: '금 (Gold)',          cat: 'commodity', unit: '$/oz' },\n  'CL=F':  { name: 'WTI 원유',           cat: 'commodity', unit: '$/배럴' },\n  'BZ=F':  { name: 'Brent 원유',         cat: 'commodity', unit: '$/배럴' },\n  'SI=F':  { name: '은 (Silver)',         cat: 'commodity', unit: '$/oz' },\n  'HG=F':  { name: '구리 (Copper)',       cat: 'commodity', unit: '$/lb' },\n\n  // 채권 금리 (%)\n  '^TNX':  { name: '미국 10Y 국채금리',   cat: 'bond', unit: '%' },\n  '^TYX':  { name: '미국 30Y 국채금리',   cat: 'bond', unit: '%' },\n\n  // 환율\n  'KRW=X':    { name: 'USD/KRW',  cat: 'fx' },\n  'EURUSD=X': { name: 'EUR/USD',  cat: 'fx' },\n  'JPY=X':    { name: 'USD/JPY',  cat: 'fx' },\n\n  // 암호화폐\n  'BTC-USD': { name: 'Bitcoin',  cat: 'crypto' },\n  'ETH-USD': { name: 'Ethereum', cat: 'crypto' },\n  'SOL-USD': { name: 'Solana',   cat: 'crypto' },\n};\n\nconst results = {};\nconst errors = [];\n\nfor (const [sym, info] of Object.entries(symbols)) {\n  try {\n    const encoded = encodeURIComponent(sym);\n    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encoded}?range=2d&interval=1d`;\n    const resp = await this.helpers.httpRequest({\n      method: 'GET',\n      url,\n      headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' },\n      timeout: 15000\n    });\n\n    const r = typeof resp === 'string' ? JSON.parse(resp) : resp;\n    const meta = r?.chart?.result?.[0]?.meta;\n    const quotes = r?.chart?.result?.[0]?.indicators?.quote?.[0];\n\n    if (meta && quotes) {\n      const closes = (quotes.close || []).filter(v => v !== null && v !== undefined);\n      let close, prevClose;\n\n      if (closes.length >= 2) {\n        close = closes[closes.length - 1];\n        prevClose = closes[closes.length - 2];\n      } else if (closes.length === 1) {\n        close = closes[0];\n        prevClose = meta.previousClose || meta.chartPreviousClose || meta.regularMarketPreviousClose || close;\n      } else {\n        close = meta.regularMarketPrice || 0;\n        prevClose = meta.previousClose || meta.chartPreviousClose || close;\n      }\n\n      const volume = quotes.volume?.[quotes.volume.length - 1];\n      const change = close - prevClose;\n      const changePct = prevClose !== 0 ? (change / prevClose) * 100 : 0;\n      const direction = change >= 0 ? '▲' : '▼';\n\n      // 소수점 자릿수 결정\n      let decimals = 2;\n      if (info.cat === 'fx' && sym !== 'KRW=X') decimals = 4;\n      if (info.cat === 'bond') decimals = 3;\n      if (info.cat === 'crypto') decimals = 2;\n\n      results[sym] = {\n        ...info,\n        close:     close?.toFixed(decimals),\n        change:    change?.toFixed(decimals),\n        changePct: changePct?.toFixed(2),\n        direction,\n        volume: volume ? (volume >= 1e9 ? (volume/1e9).toFixed(1)+'B' : volume >= 1e6 ? (volume/1e6).toFixed(1)+'M' : volume >= 1e3 ? (volume/1e3).toFixed(1)+'K' : volume.toString()) : '-'\n      };\n    }\n  } catch(e) {\n    errors.push(`${sym}: ${e.message}`);\n  }\n}\n\n// ── 섹션별 마크다운 테이블 생성 ──\n\nconst fmt = (q) => `${q.direction}${Math.abs(parseFloat(q.change)).toFixed(q.change.includes('.') ? q.change.split('.')[1].length : 2)}`;\nconst fmtPct = (q) => `${q.direction}${Math.abs(parseFloat(q.changePct)).toFixed(2)}%`;\n\n// 1. 주요 지수\nconst indexRows = ['^GSPC', '^NDX', '^DJI', '^VIX', '^SOX']\n  .filter(s => results[s])\n  .map(s => {\n    const q = results[s];\n    return `| ${q.name} | ${q.close} | ${fmt(q)} | ${fmtPct(q)} |`;\n  });\n\n// 2. 개별 종목\nconst stockRows = ['NVDA','TSLA','AAPL','MSFT','AMZN','META','GOOGL']\n  .filter(s => results[s])\n  .map(s => {\n    const q = results[s];\n    return `| ${q.name} (${s}) | $${q.close} | ${fmt(q)} | ${fmtPct(q)} | ${q.volume} |`;\n  });\n\n// 3. 원자재\nconst commodityRows = ['GC=F','CL=F','BZ=F','SI=F','HG=F']\n  .filter(s => results[s])\n  .map(s => {\n    const q = results[s];\n    return `| ${q.name} | ${q.close} ${q.unit||''} | ${fmt(q)} | ${fmtPct(q)} |`;\n  });\n\n// 4. 채권\nconst bondRows = ['^TNX','^TYX']\n  .filter(s => results[s])\n  .map(s => {\n    const q = results[s];\n    return `| ${q.name} | ${q.close}% | ${fmt(q)}bp | ${fmtPct(q)} |`;\n  });\n\n// 5. 환율\nconst fxRows = ['KRW=X','EURUSD=X','JPY=X']\n  .filter(s => results[s])\n  .map(s => {\n    const q = results[s];\n    return `| ${q.name} | ${q.close} | ${fmt(q)} | ${fmtPct(q)} |`;\n  });\n\n// 6. 암호화폐\nconst cryptoRows = ['BTC-USD','ETH-USD','SOL-USD']\n  .filter(s => results[s])\n  .map(s => {\n    const q = results[s];\n    return `| ${q.name} | $${q.close} | ${fmt(q)} | ${fmtPct(q)} | ${q.volume} |`;\n  });\n\nconst fetchTime = new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });\n\nconst marketTable = [\n  '## 📈 전일 미국 증시 요약',\n  '',\n  '**주요 지수**',\n  '| 지수 | 종가 | 전일대비 | 등락률 |',\n  '|------|------|---------|--------|',\n  ...indexRows,\n  '',\n  '**주요 종목**',\n  '| 종목 | 종가 | 전일대비 | 등락률 | 거래량 |',\n  '|------|------|---------|--------|-------|',\n  ...stockRows,\n  '',\n  '**원자재**',\n  '| 종목 | 가격 | 전일대비 | 등락률 |',\n  '|------|------|---------|--------|',\n  ...commodityRows,\n  '',\n  '**채권 금리**',\n  '| 종목 | 금리 | 전일대비 | 등락률 |',\n  '|------|------|---------|--------|',\n  ...bondRows,\n  '',\n  '**환율 (FX)**',\n  '| 통화쌍 | 환율 | 전일대비 | 등락률 |',\n  '|--------|------|---------|--------|',\n  ...fxRows,\n  '',\n  '**암호화폐**',\n  '| 종목 | 가격 | 전일대비 | 등락률 | 거래량 |',\n  '|------|------|---------|--------|-------|',\n  ...cryptoRows,\n  '',\n  `> 출처: Yahoo Finance (${fetchTime} 수집) — 실제 지수·선물·현물 데이터`\n].join('\\n');\n\nreturn [{ json: {\n  ...prev,\n  realMarketData: results,\n  marketTable,\n  dataErrors: errors,\n  dataValidated: true\n} }];\n"
+      }
+    },
+    {
+      "id": "node-02c-breaking-news",
+      "name": "S02c-BreakingNews",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        320
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// S02c-BreakingNews: 글로벌 실시간 금융 뉴스 수집 (최근 18시간 — 새벽 이슈 포함)\nconst prev = $input.first().json;\nconst FINNHUB_KEY = $env.FINNHUB_API_KEY;\n\nconst headlines = [];\nconst errors = [];\n\n// 최근 18시간 컷오프 (한국 기준 새벽 발생 이슈까지 커버)\nconst cutoffTime = Date.now() - (18 * 60 * 60 * 1000);\n\n// ── 1. Finnhub 뉴스 API ──────────────────────────────────────────────────\nif (FINNHUB_KEY && !FINNHUB_KEY.includes('여기에')) {\n  for (const cat of ['general', 'forex', 'crypto', 'merger']) {\n    try {\n      const resp = await this.helpers.httpRequest({\n        method: 'GET',\n        url: `https://finnhub.io/api/v1/news?category=${cat}&token=${FINNHUB_KEY}`,\n        headers: { 'User-Agent': 'Mozilla/5.0' },\n        timeout: 12000\n      });\n      const news = typeof resp === 'string' ? JSON.parse(resp) : resp;\n      for (const item of (Array.isArray(news) ? news : []).slice(0, 40)) {\n        const ts = (item.datetime || 0) * 1000;\n        if (ts >= cutoffTime) {\n          headlines.push({\n            source:   item.source || 'Finnhub',\n            category: cat,\n            headline: item.headline || '',\n            summary:  (item.summary || '').substring(0, 300),\n            time:     new Date(ts).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }),\n            url:      item.url || '',\n            ts\n          });\n        }\n      }\n    } catch(e) {\n      errors.push(`Finnhub/${cat}: ${e.message}`);\n    }\n  }\n}\n\n// ── 2. RSS 피드 (무료 · 무제한) ──────────────────────────────────────────\nconst rssFeeds = [\n  { url: 'https://feeds.reuters.com/reuters/businessNews',                         source: 'Reuters' },\n  { url: 'https://www.cnbc.com/id/100003114/device/rss/rss.html',                  source: 'CNBC Markets' },\n  { url: 'https://feeds.content.dowjones.io/public/rss/mw_realtimeheadlines',      source: 'MarketWatch' },\n  { url: 'https://www.cnbc.com/id/100727362/device/rss/rss.html',                  source: 'CNBC World' },\n  { url: 'https://feeds.bloomberg.com/markets/news.rss',                            source: 'Bloomberg' },\n];\n\n// RSS XML 파서 (내장 XML 파서 없으므로 정규식)\nfunction parseRSS(xml, source) {\n  const items = [];\n  const blocks = xml.split('<item>').slice(1);\n  for (const block of blocks.slice(0, 25)) {\n    const getTag = (tag) => {\n      const m = block.match(new RegExp(`<${tag}[^>]*>(?:<!\\\\[CDATA\\\\[)?([\\\\s\\\\S]*?)(?:\\\\]\\\\]>)?<\\\\/${tag}>`, 'i'));\n      return m ? m[1].trim().replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'\"') : '';\n    };\n    const headline = getTag('title');\n    const pubDate  = getTag('pubDate') || getTag('dc:date');\n    const url      = getTag('link');\n    if (!headline) continue;\n    const ts = pubDate ? new Date(pubDate).getTime() : Date.now();\n    items.push({ source, category: 'rss', headline, time: pubDate ? new Date(ts).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }) : '시간미상', url, ts });\n  }\n  return items;\n}\n\nfor (const feed of rssFeeds) {\n  try {\n    const xml = await this.helpers.httpRequest({\n      method: 'GET',\n      url: feed.url,\n      headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/rss+xml, application/xml, text/xml' },\n      timeout: 12000\n    });\n    const items = parseRSS(typeof xml === 'string' ? xml : JSON.stringify(xml), feed.source);\n    for (const item of items) {\n      if (item.ts >= cutoffTime || item.time === '시간미상') headlines.push(item);\n    }\n  } catch(e) {\n    errors.push(`RSS/${feed.source}: ${e.message}`);\n  }\n}\n\n// ── 3. 중요도 스코어링 & 중복 제거 ─────────────────────────────────────\nconst HIGH_IMPACT = [\n  // 통화정책\n  'Fed','Federal Reserve','FOMC','Powell','rate cut','rate hike','interest rate','tapering',\n  // 경제지표\n  'inflation','CPI','PCE','GDP','NFP','nonfarm','unemployment','jobless',\n  // 지정학\n  'Iran','Russia','Ukraine','China','Taiwan','war','sanction','geopolit',\n  // 에너지·원자재\n  'oil','crude','OPEC','gold','wheat','commodity',\n  // 시장 이벤트\n  'crash','plunge','surge','rally','crisis','default','bubble','recession','bear','bull',\n  // 기업\n  'earnings','revenue','guidance','layoff','merger','acquisition','IPO','bankruptcy',\n  // 기관\n  'IMF','World Bank','ECB','BOJ','BIS','Treasury','Yellen',\n  // 핵심 종목\n  'NVIDIA','Apple','Tesla','Amazon','Meta','Google','Microsoft','Berkshire',\n  // 암호화폐·달러\n  'Bitcoin','Ethereum','crypto','dollar','DXY','yield','bond','tariff'\n];\n\nconst seen = new Set();\nconst deduped = headlines.filter(h => {\n  const key = h.headline.toLowerCase().replace(/\\s+/g,'').substring(0, 60);\n  if (seen.has(key)) return false;\n  seen.add(key);\n  return true;\n});\n\nconst scored = deduped.map(h => {\n  const text = (h.headline + ' ' + (h.summary || '')).toLowerCase();\n  let score = 0;\n  for (const kw of HIGH_IMPACT) if (text.includes(kw.toLowerCase())) score += 2;\n  // 최신성 보너스 (6시간 이내 +3점)\n  if (Date.now() - h.ts < 6 * 60 * 60 * 1000) score += 3;\n  return { ...h, score };\n});\n\n// 중요도 높은 순 → 최신 순 정렬\nscored.sort((a, b) => b.score - a.score || b.ts - a.ts);\nconst top = scored.slice(0, 30);\n\n// ── 4. 마크다운 뉴스 요약 생성 ───────────────────────────────────────────\nconst fetchTime = new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });\n\n// 카테고리별 구분\nconst urgentNews  = top.filter(n => n.score >= 6);\nconst normalNews  = top.filter(n => n.score < 6);\n\nconst fmtLine = (n, i) =>\n  `${i+1}. **[${n.source}]** ${n.headline}\\n   *(${n.time}${n.summary ? ' — ' + n.summary.substring(0,120) + '...' : ''})*`;\n\nconst breakingNewsText = [\n  '## 🔴 글로벌 주요 뉴스 (최근 18시간 — 새벽 이슈 포함)',\n  '',\n  urgentNews.length > 0 ? '### ⚡ 高임팩트 헤드라인' : '',\n  ...urgentNews.map(fmtLine),\n  urgentNews.length > 0 && normalNews.length > 0 ? '\\n### 📰 주요 뉴스' : '',\n  ...normalNews.map((n, i) => fmtLine(n, urgentNews.length + i)),\n  '',\n  `> 수집시각: ${fetchTime} | 총 ${top.length}건 | 오류: ${errors.length}건${errors.length ? ' (' + errors.slice(0,3).join(', ') + ')' : ''}`\n].filter(l => l !== '').join('\\n');\n\nreturn [{ json: {\n  ...prev,\n  breakingNews:     top,\n  breakingNewsText,\n  newsErrors:       errors,\n  newsCount:        top.length,\n  urgentCount:      urgentNews.length\n} }];\n"
+      }
+    }
+  ],
+  "connections": {
+    "S01-Schedule": {
+      "main": [
+        [
+          {
+            "node": "S02-SetDate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "S02-SetDate": {
+      "main": [
+        [
+          {
+            "node": "S02b-Realtime",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "S02b-Realtime": {
+      "main": [
+        [
+          {
+            "node": "S02c-BreakingNews",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "S03-Perplexity": {
+      "main": [
+        [
+          {
+            "node": "S03b-RealData",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "S04-GPT-CrossVal": {
+      "main": [
+        [
+          {
+            "node": "S05-Claude",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "S05-Claude": {
+      "main": [
+        [
+          {
+            "node": "S06-IfClaude",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "S06-IfClaude": {
+      "main": [
+        [
+          {
+            "node": "S10-Markdown",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "S05b-Gemini",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "S07-Qwen-Fallback": {
+      "main": [
+        [
+          {
+            "node": "S08-IfQwen",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "S08-IfQwen": {
+      "main": [
+        [
+          {
+            "node": "S10-Markdown",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "S09-Llama-Fallback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "S09-Llama-Fallback": {
+      "main": [
+        [
+          {
+            "node": "S10-Markdown",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "S10-Markdown": {
+      "main": [
+        [
+          {
+            "node": "S11-Save",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "S11-Save": {
+      "main": [
+        [
+          {
+            "node": "S12-IfSave",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "S12-IfSave": {
+      "main": [
+        [
+          {
+            "node": "S13-TgOK",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "S14-TgErr",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "S13-TgOK": {
+      "main": [
+        [
+          {
+            "node": "S15-Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "S14-TgErr": {
+      "main": [
+        [
+          {
+            "node": "S15-Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "S05b-Gemini": {
+      "main": [
+        [
+          {
+            "node": "S06b-IfGemini",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "S06b-IfGemini": {
+      "main": [
+        [
+          {
+            "node": "S10-Markdown",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "S07b-Grok",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "S07b-Grok": {
+      "main": [
+        [
+          {
+            "node": "S08b-IfGrok",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "S08b-IfGrok": {
+      "main": [
+        [
+          {
+            "node": "S10-Markdown",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "S07-Qwen-Fallback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "S03b-RealData": {
+      "main": [
+        [
+          {
+            "node": "S04-GPT-CrossVal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "S02c-BreakingNews": {
+      "main": [
+        [
+          {
+            "node": "S03-Perplexity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true
+  },
+  "versionId": "3",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {}
+}
